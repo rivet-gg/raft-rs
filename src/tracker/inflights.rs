@@ -19,19 +19,19 @@ use std::cmp::Ordering;
 /// A buffer of inflight messages.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Inflights {
-    // the starting index in the buffer
-    start: usize,
-    // number of inflights in the buffer
-    count: usize,
+    /// The starting index in the buffer.
+    pub start: usize,
+    /// Number of inflights in the buffer.
+    pub count: usize,
 
-    // ring buffer
-    buffer: Vec<u64>,
+    /// Ring buffer storing the message indices.
+    pub buffer: Vec<u64>,
 
-    // capacity
-    cap: usize,
+    /// Capacity of the inflights buffer.
+    pub cap: usize,
 
-    // To support dynamically change inflight size.
-    incoming_cap: Option<usize>,
+    /// To support dynamically changing inflight size.
+    pub incoming_cap: Option<usize>,
 }
 
 impl Inflights {

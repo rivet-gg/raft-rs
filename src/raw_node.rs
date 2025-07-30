@@ -229,12 +229,13 @@ impl Ready {
 
 /// ReadyRecord encapsulates some needed data from the corresponding Ready.
 #[derive(Default, Debug, PartialEq)]
-struct ReadyRecord {
-    number: u64,
-    // (index, term) of the last entry from the entries in Ready
-    last_entry: Option<(u64, u64)>,
-    // (index, term) of the snapshot in Ready
-    snapshot: Option<(u64, u64)>,
+pub struct ReadyRecord {
+    /// The ready number
+    pub number: u64,
+    /// (index, term) of the last entry from the entries in Ready
+    pub last_entry: Option<(u64, u64)>,
+    /// (index, term) of the snapshot in Ready
+    pub snapshot: Option<(u64, u64)>,
 }
 
 /// LightReady encapsulates the commit index, committed entries and
@@ -288,13 +289,13 @@ impl LightReady {
 pub struct RawNode<T: Storage> {
     /// The internal raft state.
     pub raft: Raft<T>,
-    prev_ss: SoftState,
-    prev_hs: HardState,
+    pub(crate) prev_ss: SoftState,
+    pub(crate) prev_hs: HardState,
     // Current max number of Record and ReadyRecord.
-    max_number: u64,
-    records: VecDeque<ReadyRecord>,
+    pub(crate) max_number: u64,
+    pub(crate) records: VecDeque<ReadyRecord>,
     // Index which the given committed entries should start from.
-    commit_since_index: u64,
+    pub(crate) commit_since_index: u64,
 }
 
 impl<T: Storage> RawNode<T> {

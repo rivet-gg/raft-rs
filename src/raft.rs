@@ -87,17 +87,17 @@ pub struct SoftState {
 
 /// UncommittedState is used to keep track of information of uncommitted
 /// log entries on 'leader' node
-struct UncommittedState {
+pub struct UncommittedState {
     /// Specify maximum of uncommitted entry size.
     /// When this limit is reached, all proposals to append new log will be dropped
-    max_uncommitted_size: usize,
+    pub max_uncommitted_size: usize,
 
     /// Record current uncommitted entries size.
-    uncommitted_size: usize,
+    pub uncommitted_size: usize,
 
     /// Record index of last log entry when node becomes leader from candidate.
     /// See https://github.com/tikv/raft-rs/pull/398#discussion_r502417531 for more detail
-    last_log_tail_index: u64,
+    pub last_log_tail_index: u64,
 }
 
 impl UncommittedState {
@@ -186,7 +186,7 @@ pub struct RaftCore<T: Storage> {
 
     /// Indicates whether state machine can be promoted to leader,
     /// which is true when it's a voter and its own id is in progress list.
-    promotable: bool,
+    pub promotable: bool,
 
     /// The leader id.
     pub leader_id: u64,
@@ -219,7 +219,7 @@ pub struct RaftCore<T: Storage> {
 
     /// Number of ticks since it reached last heartbeatTimeout.
     /// only leader keeps heartbeatElapsed.
-    heartbeat_elapsed: usize,
+    pub heartbeat_elapsed: usize,
 
     /// Whether to check the quorum
     pub check_quorum: bool,
@@ -231,19 +231,19 @@ pub struct RaftCore<T: Storage> {
     /// Enable this if greater cluster stability is preferred over faster elections.
     pub pre_vote: bool,
 
-    skip_bcast_commit: bool,
-    batch_append: bool,
-    disable_proposal_forwarding: bool,
+    pub skip_bcast_commit: bool,
+    pub batch_append: bool,
+    pub disable_proposal_forwarding: bool,
 
-    heartbeat_timeout: usize,
-    election_timeout: usize,
+    pub heartbeat_timeout: usize,
+    pub election_timeout: usize,
 
     // randomized_election_timeout is a random number between
     // [min_election_timeout, max_election_timeout - 1]. It gets reset
     // when raft changes its state to follower or candidate.
-    randomized_election_timeout: usize,
-    min_election_timeout: usize,
-    max_election_timeout: usize,
+    pub randomized_election_timeout: usize,
+    pub min_election_timeout: usize,
+    pub max_election_timeout: usize,
 
     /// The logger for the raft structure.
     pub(crate) logger: slog::Logger,
@@ -252,7 +252,7 @@ pub struct RaftCore<T: Storage> {
     pub priority: i64,
 
     /// Track uncommitted log entry on this node.
-    uncommitted_state: UncommittedState,
+    pub uncommitted_state: UncommittedState,
 
     /// Max size per committed entries in a `Read`.
     pub(crate) max_committed_size_per_ready: u64,
@@ -261,7 +261,7 @@ pub struct RaftCore<T: Storage> {
 /// A struct that represents the raft consensus itself. Stores details concerning the current
 /// and possible state the system can take.
 pub struct Raft<T: Storage> {
-    prs: ProgressTracker,
+    pub(crate) prs: ProgressTracker,
 
     /// The list of messages.
     pub msgs: Vec<Message>,

@@ -512,6 +512,8 @@ mod raft;
 mod raft_log;
 pub mod raw_node;
 mod read_only;
+#[allow(missing_docs)]
+pub mod serde;
 mod status;
 pub mod storage;
 mod tracker;
