@@ -45,8 +45,8 @@ pub struct SerdeHardState {
     pub commit: u64,
 }
 
-impl From<&HardState> for SerdeHardState {
-    fn from(hs: &HardState) -> Self {
+impl From<HardState> for SerdeHardState {
+    fn from(hs: HardState) -> Self {
         SerdeHardState {
             term: hs.get_term(),
             vote: hs.get_vote(),
@@ -76,8 +76,8 @@ pub enum SerdeStateRole {
     PreCandidate,
 }
 
-impl From<&StateRole> for SerdeStateRole {
-    fn from(role: &StateRole) -> Self {
+impl From<StateRole> for SerdeStateRole {
+    fn from(role: StateRole) -> Self {
         match role {
             StateRole::Follower => SerdeStateRole::Follower,
             StateRole::Candidate => SerdeStateRole::Candidate,
@@ -105,8 +105,8 @@ pub enum SerdeReadOnlyOption {
     LeaseBased,
 }
 
-impl From<&ReadOnlyOption> for SerdeReadOnlyOption {
-    fn from(opt: &ReadOnlyOption) -> Self {
+impl From<ReadOnlyOption> for SerdeReadOnlyOption {
+    fn from(opt: ReadOnlyOption) -> Self {
         match opt {
             ReadOnlyOption::Safe => SerdeReadOnlyOption::Safe,
             ReadOnlyOption::LeaseBased => SerdeReadOnlyOption::LeaseBased,
@@ -146,8 +146,8 @@ pub struct SerdeConfig {
     pub disable_proposal_forwarding: bool,
 }
 
-impl From<&Config> for SerdeConfig {
-    fn from(config: &Config) -> Self {
+impl From<Config> for SerdeConfig {
+    fn from(config: Config) -> Self {
         SerdeConfig {
             id: config.id,
             election_tick: config.election_tick,
@@ -159,7 +159,7 @@ impl From<&Config> for SerdeConfig {
             pre_vote: config.pre_vote,
             min_election_tick: config.min_election_tick,
             max_election_tick: config.max_election_tick,
-            read_only_option: SerdeReadOnlyOption::from(&config.read_only_option),
+            read_only_option: SerdeReadOnlyOption::from(config.read_only_option),
             skip_bcast_commit: config.skip_bcast_commit,
             batch_append: config.batch_append,
             priority: config.priority,
@@ -217,8 +217,8 @@ pub struct SerdeMessage {
     pub priority: i64,
 }
 
-impl From<&Message> for SerdeMessage {
-    fn from(msg: &Message) -> Self {
+impl From<Message> for SerdeMessage {
+    fn from(mut msg: Message) -> Self {
         SerdeMessage {
             msg_type: msg.get_msg_type() as i32,
             to: msg.get_to(),
@@ -226,11 +226,11 @@ impl From<&Message> for SerdeMessage {
             term: msg.get_term(),
             log_term: msg.get_log_term(),
             index: msg.get_index(),
-            entries: msg.get_entries().iter().map(|e| SerdeEntry::from(e)).collect(),
+            entries: msg.entries.clone().into_iter().map(|e| SerdeEntry::from(e)).collect(),
             commit: msg.get_commit(),
             commit_term: msg.get_commit_term(),
             snapshot: if msg.has_snapshot() {
-                Some(SerdeSnapshot::from(msg.get_snapshot()))
+                Some(SerdeSnapshot::from(msg.snapshot.take().unwrap()))
             } else {
                 None
             },
@@ -284,8 +284,8 @@ pub struct SerdeEntry {
     pub sync_log: bool,
 }
 
-impl From<&Entry> for SerdeEntry {
-    fn from(entry: &Entry) -> Self {
+impl From<Entry> for SerdeEntry {
+    fn from(entry: Entry) -> Self {
         SerdeEntry {
             term: entry.get_term(),
             index: entry.get_index(),
@@ -319,11 +319,11 @@ pub struct SerdeSnapshot {
     pub metadata: SerdeSnapshotMetadata,
 }
 
-impl From<&Snapshot> for SerdeSnapshot {
-    fn from(snap: &Snapshot) -> Self {
+impl From<Snapshot> for SerdeSnapshot {
+    fn from(mut snap: Snapshot) -> Self {
         SerdeSnapshot {
             data: snap.get_data().to_vec(),
-            metadata: SerdeSnapshotMetadata::from(snap.get_metadata()),
+            metadata: SerdeSnapshotMetadata::from(snap.metadata.take().unwrap()),
         }
     }
 }
@@ -347,11 +347,11 @@ pub struct SerdeSnapshotMetadata {
     pub term: u64,
 }
 
-impl From<&crate::eraftpb::SnapshotMetadata> for SerdeSnapshotMetadata {
-    fn from(meta: &crate::eraftpb::SnapshotMetadata) -> Self {
+impl From<crate::eraftpb::SnapshotMetadata> for SerdeSnapshotMetadata {
+    fn from(mut meta: crate::eraftpb::SnapshotMetadata) -> Self {
         SerdeSnapshotMetadata {
             conf_state: if meta.has_conf_state() {
-                Some(SerdeConfState::from(meta.get_conf_state()))
+                Some(SerdeConfState::from(meta.conf_state.take().unwrap()))
             } else {
                 None
             },
@@ -387,8 +387,8 @@ pub struct SerdeConfState {
     pub auto_leave: bool,
 }
 
-impl From<&ConfState> for SerdeConfState {
-    fn from(cs: &ConfState) -> Self {
+impl From<ConfState> for SerdeConfState {
+    fn from(cs: ConfState) -> Self {
         SerdeConfState {
             voters: cs.get_voters().to_vec(),
             learners: cs.get_learners().to_vec(),
@@ -421,8 +421,8 @@ pub struct SerdeUncommittedState {
     pub last_log_tail_index: u64,
 }
 
-impl From<&UncommittedState> for SerdeUncommittedState {
-    fn from(us: &UncommittedState) -> Self {
+impl From<UncommittedState> for SerdeUncommittedState {
+    fn from(us: UncommittedState) -> Self {
         SerdeUncommittedState {
             max_uncommitted_size: us.max_uncommitted_size,
             uncommitted_size: us.uncommitted_size,
@@ -448,11 +448,11 @@ pub struct SerdeReadState {
     pub request_ctx: Vec<u8>,
 }
 
-impl From<&ReadState> for SerdeReadState {
-    fn from(rs: &ReadState) -> Self {
+impl From<ReadState> for SerdeReadState {
+    fn from(rs: ReadState) -> Self {
         SerdeReadState {
             index: rs.index,
-            request_ctx: rs.request_ctx.clone(),
+            request_ctx: rs.request_ctx,
         }
     }
 }
@@ -474,12 +474,12 @@ pub struct SerdeReadIndexStatus {
     pub acks: Vec<u64>,
 }
 
-impl From<&crate::read_only::ReadIndexStatus> for SerdeReadIndexStatus {
-    fn from(status: &crate::read_only::ReadIndexStatus) -> Self {
+impl From<crate::read_only::ReadIndexStatus> for SerdeReadIndexStatus {
+    fn from(status: crate::read_only::ReadIndexStatus) -> Self {
         SerdeReadIndexStatus {
-            req: SerdeMessage::from(&status.req),
+            req: SerdeMessage::from(status.req),
             index: status.index,
-            acks: status.acks.iter().cloned().collect(),
+            acks: status.acks.into_iter().collect(),
         }
     }
 }
@@ -505,9 +505,9 @@ pub struct SerdeReadOnly {
 impl From<ReadOnly> for SerdeReadOnly {
     fn from(ro: ReadOnly) -> Self {
         SerdeReadOnly {
-            option: SerdeReadOnlyOption::from(&ro.option),
-            pending_read_index: ro.pending_read_index.iter()
-                .map(|(k, v)| (k.clone(), SerdeReadIndexStatus::from(v)))
+            option: SerdeReadOnlyOption::from(ro.option),
+            pending_read_index: ro.pending_read_index.into_iter()
+                .map(|(k, v)| (k, SerdeReadIndexStatus::from(v)))
                 .collect(),
             read_index_queue: ro.read_index_queue.into_iter().collect(),
         }
@@ -549,12 +549,12 @@ impl SerdeRawNode {
         SerdeRawNode {
             raft: SerdeRaft::from_raft(&node.raft),
             soft_state: SerdeSoftState::from_soft_state(soft_state),
-            hard_state: SerdeHardState::from(&hard_state),
+            hard_state: SerdeHardState::from(hard_state),
             prev_ss: SerdeSoftState::from_soft_state(SoftState {
                 leader_id: node.prev_ss.leader_id,
                 raft_state: node.prev_ss.raft_state,
             }),
-            prev_hs: SerdeHardState::from(&node.prev_hs),
+            prev_hs: SerdeHardState::from(node.prev_hs.clone()),
             max_number: node.max_number,
             records: node.records.iter().map(|r| SerdeReadyRecord {
                 number: r.number,
@@ -598,8 +598,8 @@ pub struct SerdeRaft {
 impl SerdeRaft {
     pub fn from_raft<T: Storage>(raft: &Raft<T>) -> Self {
         SerdeRaft {
-            prs: SerdeProgressTracker::from(raft.prs()),
-            msgs: raft.msgs.iter().map(|m| SerdeMessage::from(m)).collect(),
+            prs: SerdeProgressTracker::from(raft.prs().clone()),
+            msgs: raft.msgs.clone().into_iter().map(|m| SerdeMessage::from(m)).collect(),
             r: SerdeRaftCore::from(raft),
         }
     }
@@ -663,9 +663,9 @@ impl<T: Storage> From<&Raft<T>> for SerdeRaftCore {
             term: core.term,
             vote: core.vote,
             id: core.id,
-            read_states: core.read_states.iter().map(|rs| SerdeReadState::from(rs)).collect(),
+            read_states: core.read_states.clone().into_iter().map(|rs| SerdeReadState::from(rs)).collect(),
             raft_log: SerdeRaftLog::from(&core.raft_log),
-            state: SerdeStateRole::from(&core.state),
+            state: SerdeStateRole::from(core.state),
             leader_id: core.leader_id,
             lead_transferee: core.lead_transferee,
             pending_conf_index: core.pending_conf_index,
@@ -692,7 +692,7 @@ impl<T: Storage> From<&Raft<T>> for SerdeRaftCore {
                 pre_vote: core.pre_vote,
                 min_election_tick: core.min_election_timeout,
                 max_election_tick: core.max_election_timeout,
-                read_only_option: SerdeReadOnlyOption::from(&core.read_only.option),
+                read_only_option: SerdeReadOnlyOption::from(core.read_only.option),
                 skip_bcast_commit: core.skip_bcast_commit,
                 batch_append: core.batch_append,
                 priority: core.priority,
@@ -706,7 +706,11 @@ impl<T: Storage> From<&Raft<T>> for SerdeRaftCore {
             max_msg_size: core.max_msg_size,
             priority: core.priority,
             read_only: SerdeReadOnly::from(core.read_only.clone()),
-            uncommitted_state: SerdeUncommittedState::from(&core.uncommitted_state),
+            uncommitted_state: SerdeUncommittedState::from(UncommittedState {
+                max_uncommitted_size: core.uncommitted_state.max_uncommitted_size,
+                uncommitted_size: core.uncommitted_state.uncommitted_size,
+                last_log_tail_index: core.uncommitted_state.last_log_tail_index,
+            }),
             max_committed_size_per_ready: core.max_committed_size_per_ready,
             disable_proposal_forwarding: core.disable_proposal_forwarding,
         }
@@ -797,8 +801,8 @@ impl<T: Storage> From<&RaftLog<T>> for SerdeRaftLog {
             committed: log.committed,
             persisted: log.persisted,
             applied: log.applied,
-            unstable_entries: log.unstable.entries.iter().map(|e| SerdeEntry::from(e)).collect(),
-            unstable_snapshot: log.unstable.snapshot.as_ref().map(|s| SerdeSnapshot::from(s)),
+            unstable_entries: log.unstable.entries.clone().into_iter().map(|e| SerdeEntry::from(e)).collect(),
+            unstable_snapshot: log.unstable.snapshot.clone().map(|s| SerdeSnapshot::from(s)),
             unstable_offset: log.unstable.offset,
             max_apply_unpersisted_log_limit: log.max_apply_unpersisted_log_limit,
         }
@@ -842,8 +846,8 @@ pub enum SerdeProgressState {
     Snapshot,
 }
 
-impl From<&ProgressState> for SerdeProgressState {
-    fn from(state: &ProgressState) -> Self {
+impl From<ProgressState> for SerdeProgressState {
+    fn from(state: ProgressState) -> Self {
         match state {
             ProgressState::Probe => SerdeProgressState::Probe,
             ProgressState::Replicate => SerdeProgressState::Replicate,
@@ -872,13 +876,13 @@ pub struct SerdeInflights {
     pub incoming_cap: Option<usize>,
 }
 
-impl From<&Inflights> for SerdeInflights {
-    fn from(ins: &Inflights) -> Self {
+impl From<Inflights> for SerdeInflights {
+    fn from(ins: Inflights) -> Self {
         SerdeInflights {
             start: ins.start,
             count: ins.count,
             cap: ins.cap,
-            buffer: ins.buffer.clone(),
+            buffer: ins.buffer,
             incoming_cap: ins.incoming_cap,
         }
     }
@@ -911,17 +915,17 @@ pub struct SerdeProgress {
     pub committed_index: u64,
 }
 
-impl From<&Progress> for SerdeProgress {
-    fn from(pr: &Progress) -> Self {
+impl From<Progress> for SerdeProgress {
+    fn from(pr: Progress) -> Self {
         SerdeProgress {
             matched: pr.matched,
             next_idx: pr.next_idx,
-            state: SerdeProgressState::from(&pr.state),
+            state: SerdeProgressState::from(pr.state),
             paused: pr.paused,
             pending_snapshot: pr.pending_snapshot,
             pending_request_snapshot: pr.pending_request_snapshot,
             recent_active: pr.recent_active,
-            ins: SerdeInflights::from(&pr.ins),
+            ins: SerdeInflights::from(pr.ins),
             commit_group_id: pr.commit_group_id,
             committed_index: pr.committed_index,
         }
@@ -1024,14 +1028,23 @@ pub struct SerdeProgressTracker {
     pub group_commit: bool,
 }
 
-impl From<&ProgressTracker> for SerdeProgressTracker {
-    fn from(tracker: &ProgressTracker) -> Self {
+impl From<ProgressTracker> for SerdeProgressTracker {
+    fn from(tracker: ProgressTracker) -> Self {
+        // We need to extract data before consuming the tracker
+        let progress_map: std::collections::HashMap<u64, SerdeProgress> = tracker.iter()
+            .map(|(id, pr)| (*id, SerdeProgress::from(pr.clone())))
+            .collect();
+        let conf = SerdeConfiguration::from(tracker.conf().clone());
+        let votes = tracker.votes().iter().map(|(k, v)| (*k, *v)).collect();
+        let max_inflight = *tracker.max_inflight();
+        let group_commit = tracker.group_commit();
+        
         SerdeProgressTracker {
-            progress: tracker.iter().map(|(id, pr)| (*id, SerdeProgress::from(pr))).collect(),
-            conf: SerdeConfiguration::from(tracker.conf().clone()),
-            votes: tracker.votes().iter().map(|(k, v)| (*k, *v)).collect(),
-            max_inflight: *tracker.max_inflight(),
-            group_commit: tracker.group_commit(),
+            progress: progress_map,
+            conf,
+            votes,
+            max_inflight,
+            group_commit,
         }
     }
 }
@@ -1109,7 +1122,7 @@ impl SerdeSoftState {
     pub fn from_soft_state(ss: SoftState) -> Self {
         SerdeSoftState {
             leader_id: ss.leader_id,
-            raft_state: SerdeStateRole::from(&ss.raft_state),
+            raft_state: SerdeStateRole::from(ss.raft_state.clone()),
         }
     }
 
