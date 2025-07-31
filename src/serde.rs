@@ -38,7 +38,7 @@ use crate::{
 };
 
 /// Wrapper for HardState to make it serializable
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SerdeHardState {
     pub term: u64,
     pub vote: u64,
@@ -68,7 +68,7 @@ impl From<SerdeHardState> for HardState {
 }
 
 /// Wrapper for StateRole to make it serializable
-#[derive(Serialize, Deserialize, Clone, Copy)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub enum SerdeStateRole {
     Follower,
     Candidate,
@@ -99,7 +99,7 @@ impl From<SerdeStateRole> for StateRole {
 }
 
 /// Wrapper for ReadOnlyOption to make it serializable
-#[derive(Serialize, Deserialize, Clone, Copy)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub enum SerdeReadOnlyOption {
     Safe,
     LeaseBased,
@@ -124,7 +124,7 @@ impl From<SerdeReadOnlyOption> for ReadOnlyOption {
 }
 
 /// Wrapper for Config to make it serializable
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SerdeConfig {
     pub id: u64,
     pub election_tick: usize,
@@ -197,7 +197,7 @@ impl From<SerdeConfig> for Config {
 }
 
 /// Wrapper for Message to make it serializable
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SerdeMessage {
     pub msg_type: i32,
     pub to: u64,
@@ -280,7 +280,7 @@ impl From<SerdeMessage> for Message {
 }
 
 /// Wrapper for Entry to make it serializable
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SerdeEntry {
     pub term: u64,
     pub index: u64,
@@ -319,7 +319,7 @@ impl From<SerdeEntry> for Entry {
 }
 
 /// Wrapper for Snapshot to make it serializable
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SerdeSnapshot {
     pub data: Vec<u8>,
     pub metadata: SerdeSnapshotMetadata,
@@ -348,7 +348,7 @@ impl From<SerdeSnapshot> for Snapshot {
 }
 
 /// Wrapper for SnapshotMetadata
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SerdeSnapshotMetadata {
     pub conf_state: Option<SerdeConfState>,
     pub index: u64,
@@ -386,7 +386,7 @@ impl From<SerdeSnapshotMetadata> for crate::eraftpb::SnapshotMetadata {
 }
 
 /// Wrapper for ConfState
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SerdeConfState {
     pub voters: Vec<u64>,
     pub learners: Vec<u64>,
@@ -422,7 +422,7 @@ impl From<SerdeConfState> for ConfState {
 }
 
 /// Wrapper for UncommittedState
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SerdeUncommittedState {
     pub max_uncommitted_size: usize,
     pub uncommitted_size: usize,
@@ -450,7 +450,7 @@ impl From<SerdeUncommittedState> for UncommittedState {
 }
 
 /// Wrapper for ReadState
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SerdeReadState {
     pub index: u64,
     pub request_ctx: Vec<u8>,
@@ -475,7 +475,7 @@ impl From<SerdeReadState> for ReadState {
 }
 
 /// Wrapper for ReadIndexStatus
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SerdeReadIndexStatus {
     pub req: SerdeMessage,
     pub index: u64,
@@ -503,7 +503,7 @@ impl From<SerdeReadIndexStatus> for crate::read_only::ReadIndexStatus {
 }
 
 /// Wrapper for ReadOnly
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SerdeReadOnly {
     pub option: SerdeReadOnlyOption,
     pub pending_read_index: Vec<(Vec<u8>, SerdeReadIndexStatus)>,
@@ -539,7 +539,7 @@ impl From<SerdeReadOnly> for ReadOnly {
 }
 
 /// Serializable version of RawNode
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SerdeRawNode {
     pub raft: SerdeRaft,
     pub prev_ss: SerdeSoftState,
@@ -590,7 +590,7 @@ impl SerdeRawNode {
 ///
 /// **Note**: The `from_raft` method creates a non-destructive copy of the Raft state,
 /// cloning messages rather than consuming them from the original instance.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SerdeRaft {
     prs: SerdeProgressTracker,
     pub msgs: Vec<SerdeMessage>,
@@ -628,7 +628,7 @@ impl SerdeRaft {
 }
 
 /// Serializable version of RaftCore
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SerdeRaftCore {
     pub term: u64,
     pub vote: u64,
@@ -748,7 +748,7 @@ impl SerdeRaftCore {
 /// **Limitation**: The `into_raft_log` method requires both a `Storage` instance
 /// and a `Logger` for reconstruction. These dependencies must be provided externally
 /// as they cannot be serialized with the log state.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SerdeRaftLog {
     pub committed: u64,
     pub persisted: u64,
@@ -810,7 +810,7 @@ impl SerdeRaftLog {
 }
 
 /// Wrapper for ProgressState to make it serializable
-#[derive(Serialize, Deserialize, Clone, Copy)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub enum SerdeProgressState {
     Probe,
     Replicate,
@@ -838,7 +838,7 @@ impl From<SerdeProgressState> for ProgressState {
 }
 
 /// Wrapper for Inflights to make it serializable
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SerdeInflights {
     pub start: usize,
     pub count: usize,
@@ -872,7 +872,7 @@ impl From<SerdeInflights> for Inflights {
 }
 
 /// Wrapper for Progress to make it serializable
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SerdeProgress {
     pub matched: u64,
     pub next_idx: u64,
@@ -920,13 +920,13 @@ impl From<SerdeProgress> for Progress {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SerdeMajorityConfig {
     pub voters: HashSet<u64>,
 }
 
 /// Wrapper for JointConfig to make it serializable
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SerdeJointConfig {
     pub incoming: SerdeMajorityConfig,
     pub outgoing: SerdeMajorityConfig,
@@ -955,7 +955,7 @@ impl From<SerdeJointConfig> for crate::JointConfig {
 }
 
 /// Wrapper for Configuration to make it serializable
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SerdeConfiguration {
     pub voters: SerdeJointConfig,
     pub learners: HashSet<u64>,
@@ -997,7 +997,7 @@ impl From<SerdeConfiguration> for crate::tracker::Configuration {
 /// from deserialized state due to API limitations. The `into_tracker` method creates
 /// a basic tracker but cannot restore progress entries, voters, or learners because
 /// the ProgressTracker API does not expose methods to set these after construction.
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SerdeProgressTracker {
     pub progress: HashMap<u64, SerdeProgress>,
     pub conf: SerdeConfiguration,
@@ -1043,7 +1043,7 @@ impl SerdeProgressTracker {
 }
 
 /// Serializable version of SoftState
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SerdeSoftState {
     pub leader_id: u64,
     pub raft_state: SerdeStateRole,
@@ -1066,7 +1066,7 @@ impl SerdeSoftState {
 }
 
 /// Serializable version of ReadyRecord
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SerdeReadyRecord {
     pub number: u64,
     pub last_entry: Option<(u64, u64)>,
