@@ -1,38 +1,38 @@
 //! Serializable versions of raft types for persistence and network transport.
-//! 
+//!
 //! This module provides serializable wrappers for RawNode and its dependent types,
 //! allowing you to serialize and deserialize the Raft state for persistence or
 //! network transport.
-//! 
+//!
 //! # Example
-//! 
+//!
 //! ```ignore
 //! use raft::serde::SerdeRawNode;
 //! use serde_json;
-//! 
+//!
 //! // Serialize a RawNode
 //! let serde_node = SerdeRawNode::from_node(raw_node);
 //! let json = serde_json::to_string(&serde_node)?;
-//! 
+//!
 //! // Deserialize back to RawNode
 //! let serde_node: SerdeRawNode = serde_json::from_str(&json)?;
 //! let raw_node = serde_node.into_node(storage, logger);
 //! ```
-//! 
+//!
 //! Note: Storage must implement Clone for deserialization.
 
+use protobuf::ProtobufEnum;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
-use protobuf::ProtobufEnum;
 
 use crate::{
     eraftpb::{ConfState, Entry, EntryType, HardState, Message, MessageType, Snapshot},
-    raft::{Raft, RaftCore, StateRole, UncommittedState, INVALID_INDEX, INVALID_ID},
+    raft::{Raft, RaftCore, StateRole, UncommittedState, INVALID_ID, INVALID_INDEX},
+    raft_log::RaftLog,
     raw_node::{LightReady, Peer, RawNode, Ready, ReadyRecord},
     read_only::{ReadOnly, ReadOnlyOption, ReadState},
-    raft_log::RaftLog,
     storage::Storage,
-    tracker::{ProgressTracker, Progress, ProgressState, Inflights},
+    tracker::{Inflights, Progress, ProgressState, ProgressTracker},
     util::NO_LIMIT,
     Config, SoftState, Status,
 };
@@ -226,7 +226,12 @@ impl From<Message> for SerdeMessage {
             term: msg.get_term(),
             log_term: msg.get_log_term(),
             index: msg.get_index(),
-            entries: msg.entries.clone().into_iter().map(|e| SerdeEntry::from(e)).collect(),
+            entries: msg
+                .entries
+                .clone()
+                .into_iter()
+                .map(|e| SerdeEntry::from(e))
+                .collect(),
             commit: msg.get_commit(),
             commit_term: msg.get_commit_term(),
             snapshot: if msg.has_snapshot() {
@@ -253,7 +258,9 @@ impl From<SerdeMessage> for Message {
             term: smsg.term,
             log_term: smsg.log_term,
             index: smsg.index,
-            entries: ::protobuf::RepeatedField::from_vec(smsg.entries.into_iter().map(Entry::from).collect()),
+            entries: ::protobuf::RepeatedField::from_vec(
+                smsg.entries.into_iter().map(Entry::from).collect(),
+            ),
             commit: smsg.commit,
             commit_term: smsg.commit_term,
             snapshot: if let Some(snap) = smsg.snapshot {
@@ -332,7 +339,9 @@ impl From<SerdeSnapshot> for Snapshot {
     fn from(ssnap: SerdeSnapshot) -> Self {
         Snapshot {
             data: ssnap.data.into(),
-            metadata: ::protobuf::SingularPtrField::some(crate::eraftpb::SnapshotMetadata::from(ssnap.metadata)),
+            metadata: ::protobuf::SingularPtrField::some(crate::eraftpb::SnapshotMetadata::from(
+                ssnap.metadata,
+            )),
             unknown_fields: ::protobuf::UnknownFields::default(),
             cached_size: ::protobuf::CachedSize::default(),
         }
@@ -506,7 +515,9 @@ impl From<ReadOnly> for SerdeReadOnly {
     fn from(ro: ReadOnly) -> Self {
         SerdeReadOnly {
             option: SerdeReadOnlyOption::from(ro.option),
-            pending_read_index: ro.pending_read_index.into_iter()
+            pending_read_index: ro
+                .pending_read_index
+                .into_iter()
                 .map(|(k, v)| (k, SerdeReadIndexStatus::from(v)))
                 .collect(),
             read_index_queue: ro.read_index_queue.into_iter().collect(),
@@ -518,7 +529,9 @@ impl From<SerdeReadOnly> for ReadOnly {
     fn from(sro: SerdeReadOnly) -> Self {
         ReadOnly {
             option: ReadOnlyOption::from(sro.option),
-            pending_read_index: sro.pending_read_index.into_iter()
+            pending_read_index: sro
+                .pending_read_index
+                .into_iter()
                 .map(|(k, v)| (k, crate::read_only::ReadIndexStatus::from(v)))
                 .collect(),
             read_index_queue: sro.read_index_queue.into(),
@@ -543,11 +556,11 @@ pub struct SerdeRawNode {
 
 impl SerdeRawNode {
     /// Convert from a RawNode to a serializable version
-    pub fn from_node<T: Storage>(node: &RawNode<T>) -> Self {
+    pub fn from_node<T: Storage>(node: RawNode<T>) -> Self {
         let soft_state = node.raft.soft_state();
         let hard_state = node.raft.hard_state();
         SerdeRawNode {
-            raft: SerdeRaft::from_raft(&node.raft),
+            raft: SerdeRaft::from_raft(node.raft),
             soft_state: SerdeSoftState::from_soft_state(soft_state),
             hard_state: SerdeHardState::from(hard_state),
             prev_ss: SerdeSoftState::from_soft_state(SoftState {
@@ -556,36 +569,44 @@ impl SerdeRawNode {
             }),
             prev_hs: SerdeHardState::from(node.prev_hs.clone()),
             max_number: node.max_number,
-            records: node.records.iter().map(|r| SerdeReadyRecord {
-                number: r.number,
-                last_entry: r.last_entry,
-                snapshot: r.snapshot,
-            }).collect(),
+            records: node
+                .records
+                .iter()
+                .map(|r| SerdeReadyRecord {
+                    number: r.number,
+                    last_entry: r.last_entry,
+                    snapshot: r.snapshot,
+                })
+                .collect(),
             commit_since_index: node.commit_since_index,
         }
     }
 
     /// Convert back to a RawNode
-    /// 
+    ///
     /// **Requirements**: Requires both a `Storage` instance and a `Logger` for reconstruction.
     /// These dependencies must be provided as they cannot be serialized.
     pub fn into_node<T: Storage + Clone>(self, storage: T, logger: slog::Logger) -> RawNode<T> {
         let raft = self.raft.into_raft(storage.clone(), logger.clone());
-        
+
         // Directly construct RawNode with all fields
         RawNode {
             raft,
             prev_ss: self.prev_ss.into_soft_state(),
             prev_hs: self.prev_hs.into(),
             max_number: self.max_number,
-            records: self.records.into_iter().map(SerdeReadyRecord::into_ready_record).collect(),
+            records: self
+                .records
+                .into_iter()
+                .map(SerdeReadyRecord::into_ready_record)
+                .collect(),
             commit_since_index: self.commit_since_index,
         }
     }
 }
 
 /// Serializable version of Raft
-/// 
+///
 /// **Note**: The `from_raft` method creates a non-destructive copy of the Raft state,
 /// cloning messages rather than consuming them from the original instance.
 #[derive(Serialize, Deserialize)]
@@ -596,22 +617,26 @@ pub struct SerdeRaft {
 }
 
 impl SerdeRaft {
-    pub fn from_raft<T: Storage>(raft: &Raft<T>) -> Self {
+    pub fn from_raft<T: Storage>(raft: Raft<T>) -> Self {
         SerdeRaft {
-            prs: SerdeProgressTracker::from(raft.prs().clone()),
-            msgs: raft.msgs.clone().into_iter().map(|m| SerdeMessage::from(m)).collect(),
-            r: SerdeRaftCore::from(raft),
+            prs: SerdeProgressTracker::from(raft.prs),
+            msgs: raft
+                .msgs
+                .into_iter()
+                .map(|m| SerdeMessage::from(m))
+                .collect(),
+            r: SerdeRaftCore::from(raft.r),
         }
     }
 
     /// Convert back to a Raft instance
-    /// 
+    ///
     /// **Requirements**: Requires both a `Storage` instance and a `Logger` for reconstruction.
     /// These dependencies must be provided as they cannot be serialized.
     pub fn into_raft<T: Storage + Clone>(self, storage: T, logger: slog::Logger) -> Raft<T> {
         // Convert the serialized core back to RaftCore
         let core = self.r.into_core(storage, logger);
-        
+
         // Directly construct Raft
         Raft {
             prs: self.prs.into_tracker(),
@@ -629,158 +654,116 @@ pub struct SerdeRaftCore {
     pub id: u64,
     pub read_states: Vec<SerdeReadState>,
     pub raft_log: SerdeRaftLog,
+    pub max_inflight: usize,
+    pub max_msg_size: u64,
+    pub pending_request_snapshot: u64,
     pub state: SerdeStateRole,
+    pub promotable: bool,
     pub leader_id: u64,
     pub lead_transferee: Option<u64>,
     pub pending_conf_index: u64,
-    pub pending_request_snapshot: u64,
+    pub read_only: SerdeReadOnly,
     pub election_elapsed: usize,
     pub heartbeat_elapsed: usize,
     pub check_quorum: bool,
     pub pre_vote: bool,
     pub skip_bcast_commit: bool,
     pub batch_append: bool,
+    pub disable_proposal_forwarding: bool,
     pub heartbeat_timeout: usize,
     pub election_timeout: usize,
     pub randomized_election_timeout: usize,
     pub min_election_timeout: usize,
     pub max_election_timeout: usize,
-    pub config: SerdeConfig,
-    pub promote: bool,
-    pub max_inflight: usize,
-    pub max_msg_size: u64,
     pub priority: i64,
-    pub read_only: SerdeReadOnly,
     pub uncommitted_state: SerdeUncommittedState,
     pub max_committed_size_per_ready: u64,
-    pub disable_proposal_forwarding: bool,
 }
 
-impl<T: Storage> From<&Raft<T>> for SerdeRaftCore {
-    fn from(raft: &Raft<T>) -> Self {
-        let core = &raft.r;
+impl<T: Storage> From<RaftCore<T>> for SerdeRaftCore {
+    fn from(core: RaftCore<T>) -> Self {
         SerdeRaftCore {
             term: core.term,
             vote: core.vote,
             id: core.id,
-            read_states: core.read_states.clone().into_iter().map(|rs| SerdeReadState::from(rs)).collect(),
-            raft_log: SerdeRaftLog::from(&core.raft_log),
+            read_states: core
+                .read_states
+                .into_iter()
+                .map(SerdeReadState::from)
+                .collect(),
+            raft_log: SerdeRaftLog::from(core.raft_log),
+            max_inflight: core.max_inflight,
+            max_msg_size: core.max_msg_size,
+            pending_request_snapshot: core.pending_request_snapshot,
             state: SerdeStateRole::from(core.state),
+            promotable: core.promotable,
             leader_id: core.leader_id,
             lead_transferee: core.lead_transferee,
             pending_conf_index: core.pending_conf_index,
-            pending_request_snapshot: core.pending_request_snapshot,
+            read_only: SerdeReadOnly::from(core.read_only),
             election_elapsed: core.election_elapsed,
             heartbeat_elapsed: core.heartbeat_elapsed,
             check_quorum: core.check_quorum,
             pre_vote: core.pre_vote,
             skip_bcast_commit: core.skip_bcast_commit,
             batch_append: core.batch_append,
+            disable_proposal_forwarding: core.disable_proposal_forwarding,
             heartbeat_timeout: core.heartbeat_timeout,
             election_timeout: core.election_timeout,
             randomized_election_timeout: core.randomized_election_timeout,
             min_election_timeout: core.min_election_timeout,
             max_election_timeout: core.max_election_timeout,
-            config: SerdeConfig {
-                id: core.id,
-                election_tick: core.election_timeout,
-                heartbeat_tick: core.heartbeat_timeout,
-                applied: core.raft_log.applied,
-                max_size_per_msg: core.max_msg_size,
-                max_inflight_msgs: core.max_inflight,
-                check_quorum: core.check_quorum,
-                pre_vote: core.pre_vote,
-                min_election_tick: core.min_election_timeout,
-                max_election_tick: core.max_election_timeout,
-                read_only_option: SerdeReadOnlyOption::from(core.read_only.option),
-                skip_bcast_commit: core.skip_bcast_commit,
-                batch_append: core.batch_append,
-                priority: core.priority,
-                max_uncommitted_size: core.uncommitted_state.max_uncommitted_size as u64,
-                max_committed_size_per_ready: core.max_committed_size_per_ready,
-                max_apply_unpersisted_log_limit: core.raft_log.max_apply_unpersisted_log_limit,
-                disable_proposal_forwarding: core.disable_proposal_forwarding,
-            },
-            promote: raft.promotable(),
-            max_inflight: core.max_inflight,
-            max_msg_size: core.max_msg_size,
             priority: core.priority,
-            read_only: SerdeReadOnly::from(core.read_only.clone()),
-            uncommitted_state: SerdeUncommittedState::from(UncommittedState {
-                max_uncommitted_size: core.uncommitted_state.max_uncommitted_size,
-                uncommitted_size: core.uncommitted_state.uncommitted_size,
-                last_log_tail_index: core.uncommitted_state.last_log_tail_index,
-            }),
+            uncommitted_state: SerdeUncommittedState::from(core.uncommitted_state),
             max_committed_size_per_ready: core.max_committed_size_per_ready,
-            disable_proposal_forwarding: core.disable_proposal_forwarding,
         }
     }
 }
 
 impl SerdeRaftCore {
     /// Convert back to a RaftCore instance
-    /// 
+    ///
     /// **Requirements**: Requires both a `Storage` instance and a `Logger` for reconstruction.
     /// These dependencies must be provided as they cannot be serialized.
     pub fn into_core<T: Storage + Clone>(self, storage: T, logger: slog::Logger) -> RaftCore<T> {
-        let config = Config::from(self.config);
-        // Set timeouts in config
-        // config.heartbeat_tick = self.heartbeat_timeout;
-        // config.election_tick = self.election_timeout;
-        // config.min_election_tick = self.min_election_timeout;
-        // config.max_election_tick = self.max_election_timeout;
-        // config.max_inflight_msgs = self.max_inflight;
-        // config.max_size_per_msg = self.max_msg_size;
-        // config.pre_vote = self.pre_vote;
-        // config.check_quorum = self.check_quorum;
-        // config.skip_bcast_commit = self.skip_bcast_commit;
-        // config.batch_append = self.batch_append;
-        // config.priority = self.priority;
-        
-        // Build RaftLog using the dedicated method
-        let raft_log = self.raft_log.into_raft_log(storage.clone(), logger.clone());
-        
-        // Build the RaftCore struct directly (copying from raft.rs line 333)
-        let raft_core = RaftCore {
-            id: self.id,
-            read_states: self.read_states.into_iter().map(ReadState::from).collect(),
-            raft_log,
-            max_inflight: config.max_inflight_msgs,
-            max_msg_size: config.max_size_per_msg,
-            pending_request_snapshot: self.pending_request_snapshot,
-            state: StateRole::from(self.state),
-            promotable: self.promote,
-            check_quorum: config.check_quorum,
-            pre_vote: config.pre_vote,
-            read_only: ReadOnly::from(self.read_only),
-            heartbeat_timeout: config.heartbeat_tick,
-            election_timeout: config.election_tick,
-            leader_id: self.leader_id,
-            lead_transferee: self.lead_transferee,
+        let logger = logger.new(slog::o!("raft_id" => self.id));
+        RaftCore {
             term: self.term,
-            election_elapsed: self.election_elapsed,
-            pending_conf_index: self.pending_conf_index,
             vote: self.vote,
+            id: self.id,
+            read_states: self.read_states.into_iter().map(|x| x.into()).collect(),
+            raft_log: self.raft_log.into_raft_log(storage, logger.clone()),
+            max_inflight: self.max_inflight,
+            max_msg_size: self.max_msg_size,
+            pending_request_snapshot: self.pending_request_snapshot,
+            state: self.state.into(),
+            promotable: self.promotable,
+            leader_id: self.term,
+            lead_transferee: self.lead_transferee,
+            pending_conf_index: self.pending_conf_index,
+            read_only: self.read_only.into(),
+            election_elapsed: self.election_elapsed,
             heartbeat_elapsed: self.heartbeat_elapsed,
+            check_quorum: self.check_quorum,
+            pre_vote: self.pre_vote,
+            skip_bcast_commit: self.skip_bcast_commit,
+            batch_append: self.batch_append,
+            disable_proposal_forwarding: self.disable_proposal_forwarding,
+            heartbeat_timeout: self.heartbeat_timeout,
+            election_timeout: self.election_timeout,
             randomized_election_timeout: self.randomized_election_timeout,
-            min_election_timeout: config.min_election_tick(),
-            max_election_timeout: config.max_election_tick(),
-            skip_bcast_commit: config.skip_bcast_commit,
-            batch_append: config.batch_append,
-            logger: logger.new(slog::o!("raft_id" => config.id)),
-            priority: config.priority,
-            uncommitted_state: UncommittedState::from(self.uncommitted_state),
-            max_committed_size_per_ready: config.max_committed_size_per_ready,
-            disable_proposal_forwarding: config.disable_proposal_forwarding,
-        };
-        
-        // Return the RaftCore
-        raft_core
+            min_election_timeout: self.min_election_timeout,
+            max_election_timeout: self.max_election_timeout,
+            logger,
+            priority: self.priority,
+            uncommitted_state: self.uncommitted_state.into(),
+            max_committed_size_per_ready: self.max_committed_size_per_ready,
+        }
     }
 }
 
 /// Serializable version of RaftLog
-/// 
+///
 /// **Limitation**: The `into_raft_log` method requires both a `Storage` instance
 /// and a `Logger` for reconstruction. These dependencies must be provided externally
 /// as they cannot be serialized with the log state.
@@ -795,14 +778,19 @@ pub struct SerdeRaftLog {
     pub max_apply_unpersisted_log_limit: u64,
 }
 
-impl<T: Storage> From<&RaftLog<T>> for SerdeRaftLog {
-    fn from(log: &RaftLog<T>) -> Self {
+impl<T: Storage> From<RaftLog<T>> for SerdeRaftLog {
+    fn from(log: RaftLog<T>) -> Self {
         SerdeRaftLog {
             committed: log.committed,
             persisted: log.persisted,
             applied: log.applied,
-            unstable_entries: log.unstable.entries.clone().into_iter().map(|e| SerdeEntry::from(e)).collect(),
-            unstable_snapshot: log.unstable.snapshot.clone().map(|s| SerdeSnapshot::from(s)),
+            unstable_entries: log
+                .unstable
+                .entries
+                .into_iter()
+                .map(|e| SerdeEntry::from(e))
+                .collect(),
+            unstable_snapshot: log.unstable.snapshot.map(|s| SerdeSnapshot::from(s)),
             unstable_offset: log.unstable.offset,
             max_apply_unpersisted_log_limit: log.max_apply_unpersisted_log_limit,
         }
@@ -810,16 +798,18 @@ impl<T: Storage> From<&RaftLog<T>> for SerdeRaftLog {
 }
 
 impl SerdeRaftLog {
-
     /// Convert back to a RaftLog instance
-    /// 
+    ///
     /// **Requirements**: Requires both a `Storage` instance and a `Logger` for reconstruction.
     /// These dependencies must be provided as they cannot be serialized.
     pub fn into_raft_log<T: Storage>(self, storage: T, logger: slog::Logger) -> RaftLog<T> {
         // Calculate entries size
         let entries: Vec<Entry> = self.unstable_entries.into_iter().map(Entry::from).collect();
-        let entries_size = entries.iter().map(|e| crate::util::entry_approximate_size(e)).sum();
-        
+        let entries_size = entries
+            .iter()
+            .map(|e| crate::util::entry_approximate_size(e))
+            .sum();
+
         // Build RaftLog directly
         RaftLog {
             store: storage,
@@ -969,10 +959,7 @@ impl From<SerdeJointConfig> for crate::JointConfig {
     fn from(sjc: SerdeJointConfig) -> Self {
         let incoming = crate::MajorityConfig::new(sjc.incoming.into_iter().collect());
         let outgoing = crate::MajorityConfig::new(sjc.outgoing.into_iter().collect());
-        crate::JointConfig {
-            incoming,
-            outgoing,
-        }
+        crate::JointConfig { incoming, outgoing }
     }
 }
 
@@ -1000,7 +987,7 @@ impl From<SerdeConfiguration> for crate::tracker::Configuration {
     fn from(sconf: SerdeConfiguration) -> Self {
         // Convert voters using the From trait
         let voters = crate::JointConfig::from(sconf.voters);
-        
+
         // Create the configuration
         let config = crate::tracker::Configuration {
             voters,
@@ -1008,13 +995,13 @@ impl From<SerdeConfiguration> for crate::tracker::Configuration {
             learners_next: sconf.learners_next.into_iter().collect(),
             auto_leave: sconf.auto_leave,
         };
-        
+
         config
     }
 }
 
 /// Serializable version of ProgressTracker
-/// 
+///
 /// **Limitation**: This serializable wrapper cannot fully restore a ProgressTracker
 /// from deserialized state due to API limitations. The `into_tracker` method creates
 /// a basic tracker but cannot restore progress entries, voters, or learners because
@@ -1031,14 +1018,15 @@ pub struct SerdeProgressTracker {
 impl From<ProgressTracker> for SerdeProgressTracker {
     fn from(tracker: ProgressTracker) -> Self {
         // We need to extract data before consuming the tracker
-        let progress_map: std::collections::HashMap<u64, SerdeProgress> = tracker.iter()
+        let progress_map: std::collections::HashMap<u64, SerdeProgress> = tracker
+            .iter()
             .map(|(id, pr)| (*id, SerdeProgress::from(pr.clone())))
             .collect();
         let conf = SerdeConfiguration::from(tracker.conf().clone());
         let votes = tracker.votes().iter().map(|(k, v)| (*k, *v)).collect();
         let max_inflight = *tracker.max_inflight();
         let group_commit = tracker.group_commit();
-        
+
         SerdeProgressTracker {
             progress: progress_map,
             conf,
@@ -1050,20 +1038,20 @@ impl From<ProgressTracker> for SerdeProgressTracker {
 }
 
 impl SerdeProgressTracker {
-
     /// Creates a ProgressTracker from serialized state.
-    /// 
+    ///
     /// **Note**: Uses confchange::restore to properly reconstruct the tracker
     /// with all voters, learners, and progress entries.
     pub fn into_tracker(self) -> ProgressTracker {
         // Use with_capacity for better initialization
         let voters_count = self.conf.voters.incoming.len() + self.conf.voters.outgoing.len();
         let learners_count = self.conf.learners.len();
-        let mut tracker = ProgressTracker::with_capacity(voters_count, learners_count, self.max_inflight);
-        
+        let mut tracker =
+            ProgressTracker::with_capacity(voters_count, learners_count, self.max_inflight);
+
         // Set group commit
         tracker.enable_group_commit(self.group_commit);
-        
+
         // Reconstruct the configuration state
         let mut conf_state = ConfState::default();
         conf_state.set_voters(self.conf.voters.incoming.clone());
@@ -1071,20 +1059,22 @@ impl SerdeProgressTracker {
         conf_state.set_learners(self.conf.learners.clone().into_iter().collect());
         conf_state.set_learners_next(self.conf.learners_next.clone().into_iter().collect());
         conf_state.set_auto_leave(self.conf.auto_leave);
-        
+
         // Find the highest next_idx from progress entries
-        let next_idx = self.progress.values()
+        let next_idx = self
+            .progress
+            .values()
             .map(|p| p.next_idx)
             .max()
             .unwrap_or(1);
-        
+
         // Use restore to properly set up the tracker with all progress entries
         if let Err(e) = crate::confchange::restore(&mut tracker, next_idx, &conf_state) {
             // Log error but continue - the tracker will at least have basic structure
             // In production, you might want to handle this differently
             eprintln!("Warning: Failed to fully restore ProgressTracker: {:?}", e);
         }
-        
+
         // Restore individual progress states that might not be set by restore
         for (id, sprogress) in self.progress {
             if let Some(progress) = tracker.get_mut(id) {
@@ -1101,12 +1091,12 @@ impl SerdeProgressTracker {
                 progress.committed_index = sprogress.committed_index;
             }
         }
-        
+
         // Restore votes
         for (id, vote) in self.votes {
             tracker.record_vote(id, vote);
         }
-        
+
         tracker
     }
 }
@@ -1175,7 +1165,7 @@ mod tests {
             id: 1,
             ..Default::default()
         };
-        
+
         // Create RawNode using the constructor
         let raw_node = RawNode::new(&config, storage.clone(), &logger).unwrap();
 
@@ -1189,7 +1179,7 @@ mod tests {
         // Check some basic properties
         assert_eq!(restored_node.raft.id, 1);
         assert_eq!(restored_node.raft.state, StateRole::Follower);
-        
+
         // TODO: Add more comprehensive tests:
         // - Test with entries in the log
         // - Test with multiple peers in ProgressTracker
