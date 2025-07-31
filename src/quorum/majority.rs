@@ -12,7 +12,8 @@ use std::{cmp, slice};
 /// A set of IDs that uses majority quorums to make decisions.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Configuration {
-    voters: HashSet<u64>,
+    #[doc(hidden)]
+    pub voters: HashSet<u64>,
 }
 
 impl std::fmt::Display for Configuration {

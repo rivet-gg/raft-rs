@@ -190,18 +190,20 @@ impl AckedIndexer for ProgressMap {
 /// which could be `Leader`, `Follower` and `Learner`.
 #[derive(Clone, Getters)]
 pub struct ProgressTracker {
-    progress: ProgressMap,
+    #[doc(hidden)]
+    pub progress: ProgressMap,
 
     /// The current configuration state of the cluster.
     #[get = "pub"]
-    conf: Configuration,
+    pub conf: Configuration,
     #[doc(hidden)]
     #[get = "pub"]
-    votes: HashMap<u64, bool>,
+    pub votes: HashMap<u64, bool>,
     #[get = "pub(crate)"]
-    max_inflight: usize,
+    pub(crate) max_inflight: usize,
 
-    group_commit: bool,
+    #[doc(hidden)]
+    pub group_commit: bool,
 }
 
 impl ProgressTracker {

@@ -34,7 +34,7 @@ use crate::{
     storage::Storage,
     tracker::{Inflights, Progress, ProgressState, ProgressTracker},
     util::NO_LIMIT,
-    Config, SoftState, Status,
+    Config, DefaultHashBuilder, HashMap, HashSet, SoftState, Status,
 };
 
 /// Wrapper for HardState to make it serializable
@@ -48,9 +48,9 @@ pub struct SerdeHardState {
 impl From<HardState> for SerdeHardState {
     fn from(hs: HardState) -> Self {
         SerdeHardState {
-            term: hs.get_term(),
-            vote: hs.get_vote(),
-            commit: hs.get_commit(),
+            term: hs.term,
+            vote: hs.vote,
+            commit: hs.commit,
         }
     }
 }
@@ -220,31 +220,30 @@ pub struct SerdeMessage {
 impl From<Message> for SerdeMessage {
     fn from(mut msg: Message) -> Self {
         SerdeMessage {
-            msg_type: msg.get_msg_type() as i32,
-            to: msg.get_to(),
-            from: msg.get_from(),
-            term: msg.get_term(),
-            log_term: msg.get_log_term(),
-            index: msg.get_index(),
+            msg_type: msg.msg_type as i32,
+            to: msg.to,
+            from: msg.from,
+            term: msg.term,
+            log_term: msg.log_term,
+            index: msg.index,
             entries: msg
                 .entries
-                .clone()
                 .into_iter()
                 .map(|e| SerdeEntry::from(e))
                 .collect(),
-            commit: msg.get_commit(),
-            commit_term: msg.get_commit_term(),
-            snapshot: if msg.has_snapshot() {
+            commit: msg.commit,
+            commit_term: msg.commit_term,
+            snapshot: if msg.snapshot.is_some() {
                 Some(SerdeSnapshot::from(msg.snapshot.take().unwrap()))
             } else {
                 None
             },
-            request_snapshot: msg.get_request_snapshot(),
-            reject: msg.get_reject(),
-            reject_hint: msg.get_reject_hint(),
-            context: msg.get_context().to_vec(),
-            deprecated_priority: msg.get_deprecated_priority(),
-            priority: msg.get_priority(),
+            request_snapshot: msg.request_snapshot,
+            reject: msg.reject,
+            reject_hint: msg.reject_hint,
+            context: msg.context.to_vec(),
+            deprecated_priority: msg.deprecated_priority,
+            priority: msg.priority,
         }
     }
 }
@@ -294,12 +293,12 @@ pub struct SerdeEntry {
 impl From<Entry> for SerdeEntry {
     fn from(entry: Entry) -> Self {
         SerdeEntry {
-            term: entry.get_term(),
-            index: entry.get_index(),
-            entry_type: entry.get_entry_type() as i32,
-            data: entry.get_data().to_vec(),
-            context: entry.get_context().to_vec(),
-            sync_log: entry.get_sync_log(),
+            term: entry.term,
+            index: entry.index,
+            entry_type: entry.entry_type as i32,
+            data: entry.data.to_vec(),
+            context: entry.context.to_vec(),
+            sync_log: entry.sync_log,
         }
     }
 }
@@ -329,7 +328,7 @@ pub struct SerdeSnapshot {
 impl From<Snapshot> for SerdeSnapshot {
     fn from(mut snap: Snapshot) -> Self {
         SerdeSnapshot {
-            data: snap.get_data().to_vec(),
+            data: snap.data.to_vec(),
             metadata: SerdeSnapshotMetadata::from(snap.metadata.take().unwrap()),
         }
     }
@@ -359,13 +358,13 @@ pub struct SerdeSnapshotMetadata {
 impl From<crate::eraftpb::SnapshotMetadata> for SerdeSnapshotMetadata {
     fn from(mut meta: crate::eraftpb::SnapshotMetadata) -> Self {
         SerdeSnapshotMetadata {
-            conf_state: if meta.has_conf_state() {
+            conf_state: if meta.conf_state.is_some() {
                 Some(SerdeConfState::from(meta.conf_state.take().unwrap()))
             } else {
                 None
             },
-            index: meta.get_index(),
-            term: meta.get_term(),
+            index: meta.index,
+            term: meta.term,
         }
     }
 }
@@ -399,11 +398,11 @@ pub struct SerdeConfState {
 impl From<ConfState> for SerdeConfState {
     fn from(cs: ConfState) -> Self {
         SerdeConfState {
-            voters: cs.get_voters().to_vec(),
-            learners: cs.get_learners().to_vec(),
-            voters_outgoing: cs.get_voters_outgoing().to_vec(),
-            learners_next: cs.get_learners_next().to_vec(),
-            auto_leave: cs.get_auto_leave(),
+            voters: cs.voters,
+            learners: cs.learners,
+            voters_outgoing: cs.voters_outgoing,
+            learners_next: cs.learners_next,
+            auto_leave: cs.auto_leave,
         }
     }
 }
@@ -543,12 +542,8 @@ impl From<SerdeReadOnly> for ReadOnly {
 #[derive(Serialize, Deserialize)]
 pub struct SerdeRawNode {
     pub raft: SerdeRaft,
-    // State tracking fields
-    pub soft_state: SerdeSoftState,
-    pub hard_state: SerdeHardState,
     pub prev_ss: SerdeSoftState,
     pub prev_hs: SerdeHardState,
-    // Ready tracking fields
     pub max_number: u64,
     pub records: Vec<SerdeReadyRecord>,
     pub commit_since_index: u64,
@@ -557,26 +552,15 @@ pub struct SerdeRawNode {
 impl SerdeRawNode {
     /// Convert from a RawNode to a serializable version
     pub fn from_node<T: Storage>(node: RawNode<T>) -> Self {
-        let soft_state = node.raft.soft_state();
-        let hard_state = node.raft.hard_state();
         SerdeRawNode {
             raft: SerdeRaft::from_raft(node.raft),
-            soft_state: SerdeSoftState::from_soft_state(soft_state),
-            hard_state: SerdeHardState::from(hard_state),
-            prev_ss: SerdeSoftState::from_soft_state(SoftState {
-                leader_id: node.prev_ss.leader_id,
-                raft_state: node.prev_ss.raft_state,
-            }),
-            prev_hs: SerdeHardState::from(node.prev_hs.clone()),
+            prev_ss: SerdeSoftState::from_soft_state(node.prev_ss),
+            prev_hs: SerdeHardState::from(node.prev_hs),
             max_number: node.max_number,
             records: node
                 .records
-                .iter()
-                .map(|r| SerdeReadyRecord {
-                    number: r.number,
-                    last_entry: r.last_entry,
-                    snapshot: r.snapshot,
-                })
+                .into_iter()
+                .map(SerdeReadyRecord::from_ready_record)
                 .collect(),
             commit_since_index: node.commit_since_index,
         }
@@ -587,11 +571,8 @@ impl SerdeRawNode {
     /// **Requirements**: Requires both a `Storage` instance and a `Logger` for reconstruction.
     /// These dependencies must be provided as they cannot be serialized.
     pub fn into_node<T: Storage + Clone>(self, storage: T, logger: slog::Logger) -> RawNode<T> {
-        let raft = self.raft.into_raft(storage.clone(), logger.clone());
-
-        // Directly construct RawNode with all fields
         RawNode {
-            raft,
+            raft: self.raft.into_raft(storage, logger),
             prev_ss: self.prev_ss.into_soft_state(),
             prev_hs: self.prev_hs.into(),
             max_number: self.max_number,
@@ -939,27 +920,37 @@ impl From<SerdeProgress> for Progress {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+pub struct SerdeMajorityConfig {
+    pub voters: HashSet<u64>,
+}
+
 /// Wrapper for JointConfig to make it serializable
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SerdeJointConfig {
-    pub incoming: Vec<u64>,
-    pub outgoing: Vec<u64>,
+    pub incoming: SerdeMajorityConfig,
+    pub outgoing: SerdeMajorityConfig,
 }
 
 impl From<crate::JointConfig> for SerdeJointConfig {
     fn from(jc: crate::JointConfig) -> Self {
         SerdeJointConfig {
-            incoming: jc.incoming.ids().cloned().collect(),
-            outgoing: jc.outgoing.ids().cloned().collect(),
+            incoming: SerdeMajorityConfig {
+                voters: jc.incoming.voters,
+            },
+            outgoing: SerdeMajorityConfig {
+                voters: jc.outgoing.voters,
+            },
         }
     }
 }
 
 impl From<SerdeJointConfig> for crate::JointConfig {
     fn from(sjc: SerdeJointConfig) -> Self {
-        let incoming = crate::MajorityConfig::new(sjc.incoming.into_iter().collect());
-        let outgoing = crate::MajorityConfig::new(sjc.outgoing.into_iter().collect());
-        crate::JointConfig { incoming, outgoing }
+        crate::JointConfig {
+            incoming: crate::MajorityConfig::new(sjc.incoming.voters),
+            outgoing: crate::MajorityConfig::new(sjc.outgoing.voters),
+        }
     }
 }
 
@@ -967,18 +958,18 @@ impl From<SerdeJointConfig> for crate::JointConfig {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SerdeConfiguration {
     pub voters: SerdeJointConfig,
-    pub learners: Vec<u64>,
-    pub learners_next: Vec<u64>,
+    pub learners: HashSet<u64>,
+    pub learners_next: HashSet<u64>,
     pub auto_leave: bool,
 }
 
 impl From<crate::tracker::Configuration> for SerdeConfiguration {
     fn from(conf: crate::tracker::Configuration) -> Self {
         SerdeConfiguration {
-            voters: SerdeJointConfig::from(conf.voters().clone()),
-            learners: conf.learners().iter().cloned().collect(),
-            learners_next: conf.learners_next().iter().cloned().collect(),
-            auto_leave: *conf.auto_leave(),
+            voters: SerdeJointConfig::from(conf.voters),
+            learners: conf.learners,
+            learners_next: conf.learners_next,
+            auto_leave: conf.auto_leave,
         }
     }
 }
@@ -991,8 +982,8 @@ impl From<SerdeConfiguration> for crate::tracker::Configuration {
         // Create the configuration
         let config = crate::tracker::Configuration {
             voters,
-            learners: sconf.learners.into_iter().collect(),
-            learners_next: sconf.learners_next.into_iter().collect(),
+            learners: sconf.learners,
+            learners_next: sconf.learners_next,
             auto_leave: sconf.auto_leave,
         };
 
@@ -1008,31 +999,25 @@ impl From<SerdeConfiguration> for crate::tracker::Configuration {
 /// the ProgressTracker API does not expose methods to set these after construction.
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SerdeProgressTracker {
-    pub progress: std::collections::HashMap<u64, SerdeProgress>,
+    pub progress: HashMap<u64, SerdeProgress>,
     pub conf: SerdeConfiguration,
-    pub votes: std::collections::HashMap<u64, bool>,
+    pub votes: HashMap<u64, bool>,
     pub max_inflight: usize,
     pub group_commit: bool,
 }
 
 impl From<ProgressTracker> for SerdeProgressTracker {
     fn from(tracker: ProgressTracker) -> Self {
-        // We need to extract data before consuming the tracker
-        let progress_map: std::collections::HashMap<u64, SerdeProgress> = tracker
-            .iter()
-            .map(|(id, pr)| (*id, SerdeProgress::from(pr.clone())))
-            .collect();
-        let conf = SerdeConfiguration::from(tracker.conf().clone());
-        let votes = tracker.votes().iter().map(|(k, v)| (*k, *v)).collect();
-        let max_inflight = *tracker.max_inflight();
-        let group_commit = tracker.group_commit();
-
         SerdeProgressTracker {
-            progress: progress_map,
-            conf,
-            votes,
-            max_inflight,
-            group_commit,
+            progress: tracker
+                .progress
+                .into_iter()
+                .map(|(k, v)| (k, v.into()))
+                .collect(),
+            conf: tracker.conf.into(),
+            votes: tracker.votes,
+            max_inflight: tracker.max_inflight,
+            group_commit: tracker.group_commit,
         }
     }
 }
@@ -1043,61 +1028,17 @@ impl SerdeProgressTracker {
     /// **Note**: Uses confchange::restore to properly reconstruct the tracker
     /// with all voters, learners, and progress entries.
     pub fn into_tracker(self) -> ProgressTracker {
-        // Use with_capacity for better initialization
-        let voters_count = self.conf.voters.incoming.len() + self.conf.voters.outgoing.len();
-        let learners_count = self.conf.learners.len();
-        let mut tracker =
-            ProgressTracker::with_capacity(voters_count, learners_count, self.max_inflight);
-
-        // Set group commit
-        tracker.enable_group_commit(self.group_commit);
-
-        // Reconstruct the configuration state
-        let mut conf_state = ConfState::default();
-        conf_state.set_voters(self.conf.voters.incoming.clone());
-        conf_state.set_voters_outgoing(self.conf.voters.outgoing.clone());
-        conf_state.set_learners(self.conf.learners.clone().into_iter().collect());
-        conf_state.set_learners_next(self.conf.learners_next.clone().into_iter().collect());
-        conf_state.set_auto_leave(self.conf.auto_leave);
-
-        // Find the highest next_idx from progress entries
-        let next_idx = self
-            .progress
-            .values()
-            .map(|p| p.next_idx)
-            .max()
-            .unwrap_or(1);
-
-        // Use restore to properly set up the tracker with all progress entries
-        if let Err(e) = crate::confchange::restore(&mut tracker, next_idx, &conf_state) {
-            // Log error but continue - the tracker will at least have basic structure
-            // In production, you might want to handle this differently
-            eprintln!("Warning: Failed to fully restore ProgressTracker: {:?}", e);
+        ProgressTracker {
+            progress: self
+                .progress
+                .into_iter()
+                .map(|(k, v)| (k, v.into()))
+                .collect(),
+            conf: self.conf.into(),
+            votes: self.votes,
+            max_inflight: self.max_inflight,
+            group_commit: self.group_commit,
         }
-
-        // Restore individual progress states that might not be set by restore
-        for (id, sprogress) in self.progress {
-            if let Some(progress) = tracker.get_mut(id) {
-                // Update progress fields from serialized state
-                progress.matched = sprogress.matched;
-                progress.next_idx = sprogress.next_idx;
-                progress.state = sprogress.state.into();
-                progress.paused = sprogress.paused;
-                progress.pending_snapshot = sprogress.pending_snapshot;
-                progress.pending_request_snapshot = sprogress.pending_request_snapshot;
-                progress.recent_active = sprogress.recent_active;
-                progress.ins = sprogress.ins.into();
-                progress.commit_group_id = sprogress.commit_group_id;
-                progress.committed_index = sprogress.committed_index;
-            }
-        }
-
-        // Restore votes
-        for (id, vote) in self.votes {
-            tracker.record_vote(id, vote);
-        }
-
-        tracker
     }
 }
 
@@ -1170,7 +1111,7 @@ mod tests {
         let raw_node = RawNode::new(&config, storage.clone(), &logger).unwrap();
 
         // Convert to serializable
-        let serde_node = SerdeRawNode::from_node(&raw_node);
+        let serde_node = SerdeRawNode::from_node(raw_node);
 
         // Manually check that we can create and convert back
         // (Note: actual serialization would require serde_json to be added as a dev-dependency)
