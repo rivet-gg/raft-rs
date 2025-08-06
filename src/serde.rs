@@ -719,7 +719,7 @@ impl SerdeRaftCore {
             pending_request_snapshot: self.pending_request_snapshot,
             state: self.state.into(),
             promotable: self.promotable,
-            leader_id: self.term,
+            leader_id: self.leader_id,
             lead_transferee: self.lead_transferee,
             pending_conf_index: self.pending_conf_index,
             read_only: self.read_only.into(),
